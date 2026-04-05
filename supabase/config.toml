@@ -1,0 +1,18 @@
+# Supabase Local Configuration
+
+project_id = "smriti-os"
+
+[api]
+enabled = true
+port = 54321
+db_schema = "public, storage, graphql_public"
+
+[db]
+port = 54322
+
+[auth]
+enabled = true
+port = 54324
+jwt_secret = "super-secret-jwt-token-with-at-least-32-characters-long"
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
