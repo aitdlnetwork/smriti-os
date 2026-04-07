@@ -1,0 +1,33 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@types/uuid": "^10.0.0",
+    "localforage": "^1.10.0",
+    "lucide-react": "^1.7.0",
+    "next": "16.2.2",
+    "react": "19.2.4",
+    "react-barcode": "^1.6.1",
+    "react-dom": "19.2.4",
+    "sql.js": "^1.14.1",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/localforage": "^0.0.33",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/sql.js": "^1.4.11",
+    "copy-webpack-plugin": "^14.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.2",
+    "typescript": "^5"
+  }
+}

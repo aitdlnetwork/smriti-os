@@ -1,0 +1,268 @@
+# 🧠 Smriti-OS: Deep Architecture Analysis & Development Roadmap
+**Date:** April 7, 2026 | **Analyst:** Antigravity AI | **Status:** CRITICAL REVIEW
+
+---
+
+## 📊 Executive Summary
+
+Smriti-OS has a **strong architectural foundation** but is at **~30% functional parity** with Shoper 9. The core "Memory, Not Code" design pattern is correctly established. The critical gap is in the **Application Layer** — the database schema is solid, but the UI components, service layer, and business logic are largely incomplete or stubbed.
+
+> [!IMPORTANT]
+> The `DynamicGrid.tsx` component has a critical `handleSave` that contains `// TODO: Write actual save logic`. This means **no data is actually persisted** in PO or GRN modules currently. This is the most urgent defect to fix.
+
+---
+
+## 🏗️ Architecture Assessment
+
+### What's Working Well ✅
+
+| Layer | Component | Status | Strength |
+|---|---|---|---|
+| **DB Engine** | `sql.js` + `localforage` (WASM) | ✅ Solid | Offline-first, zero server cost |
+| **Schema Design** | `001_initial_retail_procurement.sql` | ✅ Solid | Comprehensive 8-module schema |
+| **Settings Layer** | `settings_schema.sql` + `ui_grid_configs` | ✅ Solid | Correct JSON-driven config pattern |
+| **Catalogue** | Item Master, Tax, Payment, Price Revision | ✅ Solid | 4 managers fully implemented |
+| **Dynamic Config Concept** | `DynamicGrid.tsx` reads JSON from DB | ✅ Solid | Right pattern, wrong execution |
+| **DB Migrations** | Idempotent `syncSchema()` | ✅ Solid | Safe, additive updates |
+
+### Critical Gaps ❌
+
+| Layer | Missing | Impact |
+|---|---|---|
+| **DynamicGrid Save Logic** | `handleSave` is a `TODO` | **CRITICAL** - No data saved |
+| **GRN Service** | No `grnService.ts` exists | **HIGH** - GRN module broken |
+| **PO Service** | No `poService.ts` exists | **HIGH** - PO module broken |
+| **Size-wise Matrix** | No apparel grid component | **HIGH** - Core retail need |
+| **Configuration Hub UI** | No settings editor UI | **HIGH** - Can't change business rules |
+| **Stock Validation Logic** | Level 0-3 defined in DB but not enforced in UI | **HIGH** - Safety rules bypassed |
+| **Billing/POS Engine** | No billing component | **CRITICAL** - Core revenue feature |
+| **Till Management** | Schema exists, no UI | **MEDIUM** |
+| **Sales Returns** | Not implemented | **MEDIUM** |
+| **Tally Sync** | Schema + logs exist, no sync engine | **MEDIUM** |
+
+---
+
+## 🔬 Deep Dive: Module-by-Module Gap Analysis
+
+### 1. Procurement Engine (PO + GRN)
+
+**Current State:** The `DynamicGrid` renders correctly using JSON schema from `ui_grid_configs`. Config toggles (PDT Load, Stock Validation Level) display correctly. **But the save button does nothing.**
+
+**The Exact Fix Required:**
+```typescript
+// DynamicGrid.tsx - handleSave needs to call module-specific service:
+const handleSave = async () => {
+  // Validate mandatory fields ✅ (already done)
+  
+  // Route to correct service based on moduleId:
+  if (moduleId === 'GRN') await grnService.postReceipt(rows, headerData);
+  if (moduleId === 'PO')  await poService.createOrder(rows, vendorId);
+  
+  // After save, post to stock_ledger (for GRN - stock IN)
+  // Apply stock_validation_level rules (for GO - stock OUT)
+}
+```
+
+**Missing Service Files needed:**
+- `lib/services/grnService.ts` → CRUD for `goods_inward` + `goods_inward_items` + `stock_ledger`
+- `lib/services/poService.ts` → CRUD for `purchase_orders` + `po_items`
+- `lib/services/stockService.ts` → Stock ledger query engine + validation level enforcement
+
+---
+
+### 2. The `ui_grid_configs` Table — Underutilized
+
+The table is seeded with only 2 rows (PO, GRN) but is **far more powerful** than being used:
+
+```sql
+-- Currently seeded (bare minimum):
+INSERT INTO ui_grid_configs VALUES ('PO', '[...]', FALSE, 0);
+INSERT INTO ui_grid_configs VALUES ('GRN', '[...]', TRUE, 1);
+
+-- What it SHOULD contain (full parity):
+INSERT INTO ui_grid_configs VALUES ('GO_MISC_ISSUE', '[...]', TRUE, 2);  -- Strict validation
+INSERT INTO ui_grid_configs VALUES ('GO_TRANSFER_OUT', '[...]', FALSE, 3); -- Concurrent lock
+INSERT INTO ui_grid_configs VALUES ('SALES_RETURN', '[...]', FALSE, 1);
+INSERT INTO ui_grid_configs VALUES ('STOCK_TAKE', '[...]', TRUE, 0);
+```
+
+**Suggestion:** Each Shoper 9 transaction type maps directly to a `module_id` row in `ui_grid_configs`. This is the "Configuration Hub" concept — business owners change the JSON, not the code.
+
+---
+
+### 3. The `system_parameters` Table — Almost Empty
+
+**Currently seeded:** Only 2 rows (`import_goods_inwards`, `enable_lsq`).
+
+**What Shoper 9 requires (50+ parameters extracted):**
+
+```sql
+-- Billing Parameters (from Billing_Configuration.htm)
+INSERT INTO system_parameters VALUES ('Billing', 'accept_customer_id', '1');
+INSERT INTO system_parameters VALUES ('Billing', 'customer_selection_mandatory', '0');
+INSERT INTO system_parameters VALUES ('Billing', 'allow_customer_insertion_mode', '4'); -- Anonymous billing
+INSERT INTO system_parameters VALUES ('Billing', 'club_duplicate_items', '1');
+INSERT INTO system_parameters VALUES ('Billing', 'stock_out_action', '2'); -- Disallow billing
+
+-- POS Parameters (from Walk-in_Configuration.htm)
+INSERT INTO system_parameters VALUES ('Walkin', 'walkin_start_time', '09:00');
+INSERT INTO system_parameters VALUES ('Walkin', 'walkin_end_time', '21:00');
+INSERT INTO system_parameters VALUES ('Walkin', 'walkin_interval_mins', '30');
+
+-- Price Revision (from Price_Revision_Authorisation_Configuration.htm)
+INSERT INTO system_parameters VALUES ('PriceRevision', 'activate_at_day_begin', '0');
+INSERT INTO system_parameters VALUES ('PriceRevision', 'activate_at_import', '1');
+INSERT INTO system_parameters VALUES ('PriceRevision', 'activate_at_authorization', '1');
+
+-- Till Management (from Till_Management_Config.htm)
+INSERT INTO system_parameters VALUES ('TillManagement', 'enable_till_management', '1');
+INSERT INTO system_parameters VALUES ('TillManagement', 'cash_limit_per_till', '50000');
+
+-- Document Numbering (from Goods_Inwards_Outwards_Prefix_Definition.htm)
+INSERT INTO system_parameters VALUES ('DocumentPrefix', 'grn_prefix', 'GRN/');
+INSERT INTO system_parameters VALUES ('DocumentPrefix', 'po_prefix', 'PO/');
+INSERT INTO system_parameters VALUES ('DocumentPrefix', 'go_prefix', 'GO/');
+```
+
+---
+
+### 4. Schema Duality Problem 🚨
+
+**Critical Architectural Conflict Detected:**
+
+There are **TWO different database schemas**:
+1. `001_initial_retail_procurement.sql` → PostgreSQL syntax (`UUID`, `gen_random_uuid()`, `JSONB`, triggers in `plpgsql`)
+2. `db.ts` → SQLite/WASM via `sql.js` (uses `TEXT` PKs, `INTEGER DEFAULT`, no `UUID`)
+
+The app actually runs on **SQLite (sql.js)**, but the SQL file is written in **PostgreSQL**. The schema in `db.ts::syncSchema()` is what actually runs. The `001_initial_retail_procurement.sql` is served as a static file (`/001_retail_schema.sql`) but it contains PostgreSQL syntax that **will fail silently** in SQLite.
+
+> [!WARNING]
+> **This is a silent data corruption risk.** The `populateInitialSchema()` fetches `/001_retail_schema.sql` and runs it. But `gen_random_uuid()`, `JSONB`, and `plpgsql` triggers **do not exist in SQLite**. The initial schema likely silently fails and only `syncSchema()`'s SQLite-compatible tables are actually created.
+
+**Recommendation:** Either:
+- **(A) Create a SQLite-native schema file** (`/001_retail_schema_sqlite.sql`) that matches what `syncSchema()` creates, or
+- **(B) Remove `populateInitialSchema()`** and let `syncSchema()` be the single source of truth.
+
+---
+
+### 5. Missing Core Tables in SQLite Schema
+
+Cross-referencing what's in `syncSchema()` vs what's needed:
+
+| Table | Needed For | In SQLite Schema? |
+|---|---|---|
+| `item_master` | Core catalogue | ✅ (via initial schema) |
+| `general_lookups` | FK lookups | ✅ |
+| `ui_grid_configs` | Dynamic grid | ❌ Not in syncSchema! |
+| `system_parameters` | Config engine | ❌ Not in syncSchema! |
+| `purchase_orders` | PO module | ❌ Not in syncSchema! |
+| `goods_inward` | GRN module | ❌ Not in syncSchema! |
+| `stock_ledger` | Inventory | ❌ Not in syncSchema! |
+| `sales_invoices` | Billing | ❌ Not in syncSchema! |
+| `tills` / `till_sessions` | Cash Mgmt | ❌ Not in syncSchema! |
+
+> [!CAUTION]
+> **`ui_grid_configs` is not in `syncSchema()`!** This means the `DynamicGrid` component query for `SELECT * FROM ui_grid_configs WHERE module_id=?` would throw a "no such table" error on fresh installs after the PostgreSQL schema fails. The entire Procurement module currently depends on a table that may not exist.
+
+---
+
+## 🗺️ Prioritized Development Roadmap
+
+### 🔴 Phase 1: Foundation Hardening (This Week)
+*Fix what's broken before building new.*
+
+1. **[CRITICAL] Migrate SQLite schema into `syncSchema()`**
+   - Add `ui_grid_configs`, `system_parameters`, `purchase_orders`, `goods_inward`, `goods_inward_items`, `stock_ledger`, `sales_invoices`, `sales_payments`, `tills`, `till_sessions` to `syncSchema()`.
+   - Replace PostgreSQL-specific syntax with SQLite equivalents.
+
+2. **[CRITICAL] Implement `DynamicGrid.handleSave()`**
+   - Wire up `grnService.ts` for GRN module writes.
+   - Wire up `poService.ts` for PO module writes.
+   - Post stock movements to `stock_ledger` on GRN save.
+
+3. **[HIGH] Seed `system_parameters` with all extracted Shoper 9 values**
+   - 50+ parameters from the extracted documentation.
+
+---
+
+### 🟠 Phase 2: Configuration Hub (Next Week)
+*Make the business settings actually configurable.*
+
+4. **Build `ConfigHub.tsx` component**
+   - A settings panel in the ERP dashboard where admins can:
+     - Modify `ui_grid_configs` JSON schemas (toggle columns, set mandatory flags)
+     - Update `system_parameters` key-value pairs
+     - Set stock validation levels per module
+
+5. **Implement Stock Validation Engine**
+   - Read `stock_validation_level` from `ui_grid_configs`
+   - Before any `goods_outward_items` INSERT, check `current_stock_vw`
+   - Level 0: Skip, Level 1: Warn & proceed, Level 2: Block, Level 3: Lock row
+
+---
+
+### 🟡 Phase 3: Billing POS Engine (Week 3)
+*The core revenue-generating feature.*
+
+6. **Build `POSBilling.tsx` component**
+   - Keyboard-driven bill entry (F7 exact cash, F8 multi-tender)
+   - Anonymous billing (Mode 4 from `system_parameters`)
+   - Item clubbing logic
+   - Salesperson commission tracking
+   - Settlement with multiple payment rails (Cash, Card, UPI, Credit Note)
+
+7. **Build `SalesReturn.tsx`**
+   - Bill-reference-based returns
+   - Credit Note generation
+   - Stock reversal via `stock_ledger`
+
+---
+
+### 🟢 Phase 4: Size-wise Matrix Grid (Week 4)
+*The differentiator for apparel/footwear retailers.*
+
+8. **Build `SizewiseGrid.tsx` component**
+   - Read size groups from `size_groups` table
+   - Render a `[Style × Size]` matrix grid for input
+   - Each cell = one SKU quantity
+   - Integrates with PO and GRN `DynamicGrid` when entry mode = `SIZEWISE`
+
+9. **Add `entry_mode` to `ui_grid_configs`**
+   ```sql
+   ALTER TABLE ui_grid_configs ADD COLUMN entry_mode TEXT DEFAULT 'NORMAL'; -- 'NORMAL' | 'SIZEWISE'
+   ```
+
+---
+
+### 🔵 Phase 5: Cash, Till & Tally Sync (Week 5+)
+*Enterprise compliance and cash control.*
+
+10. **Till Management UI:** Open/Close till sessions, cash lift/drop, cash limit enforcement
+11. **Day Begin/End Process:** Auto-apply scheduled price revisions, clear suspended bills
+12. **Tally XML Export:** Generate TallyPrime-compatible XML from `tally_sync_logs` for one-click accounting push
+
+---
+
+## 🎯 The Single Most Impactful Suggestion
+
+**Build the `ConfigHub` screen first.**
+
+Here's why: Every feature from Phase 3 onwards (Billing, Stock Validation, Size-wise) requires specific `system_parameters` values to work correctly. Without a Config Hub, developers must manually run SQL inserts every time a business rule needs to change. With a Config Hub:
+- The store owner can self-configure their own POS behavior
+- Development moves faster (test different modes without code changes)
+- It's the defining feature that separates Smriti-OS from generic ERPs
+
+The DNA of the entire "Memory, Not Code" philosophy is realized in this single screen.
+
+---
+
+## 📐 Recommended Immediate Next Step
+
+```
+Phase 1 → Fix DB schema (1 day) → Fix DynamicGrid save (1 day) → Phase 2 Config Hub (2 days)
+```
+
+After these 4 days of focused work, Smriti-OS will go from ~30% → ~60% Shoper 9 parity and will be demonstrable end-to-end: **Create a PO → Receive GRN → See stock in ledger → Configure billing rules → Test a sale.**
+
+---
+*© 2026 AITDL NETWORK | Smriti-OS Architecture Review*
