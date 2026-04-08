@@ -68,6 +68,8 @@ interface CustomerProfile {
   destCode: "LOC" | "OUT";
   isB2B: boolean;
   gstin?: string;
+  pgAllowCredit: boolean;
+  pgCreditLimit: number;
 }
 
 type PayMode = "CASH" | "CREDIT CARD" | "DEBIT CARD" | "UPI" | "LOYALTY PTS" | "CHEQUE" | "STORE CREDIT";
@@ -120,6 +122,7 @@ export default function RetailPOS() {
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile | null>(null);
   const [billSalesman, setBillSalesman] = useState("");
   const [isReturnMode, setIsReturnMode] = useState(false);
+  const [billType, setBillType] = useState<"CASH" | "CREDIT">("CASH");
 
   // ─── Grid State ───
   const [rows, setRows] = useState<CartRow[]>([blankRow(1), blankRow(2), blankRow(3), blankRow(4), blankRow(5)]);
@@ -212,16 +215,21 @@ export default function RetailPOS() {
     setCustomer(val);
     if (!localDB.isInitialized) return;
     if (val.length >= 4) {
-      const res = localDB.exec("SELECT * FROM customers WHERE phone_number = ? LIMIT 1", [val]);
+      // Fallback query matching both old `customers` table and new `customer_master` table fields if aliased
+      const res = localDB.exec(`
+        SELECT c.*, c.phone as phone_number, c.loyalty_points
+        FROM customer_master c 
+        WHERE c.phone = ? OR c.customer_code = ? LIMIT 1
+      `, [val, val]);
+
       if (res.length > 0) {
         const c = res[0] as any;
 
-        // Dynamically compute historically exact metrics from SQLite
         const metrics = localDB.exec("SELECT SUM(net_total) as lt_spend, MAX(created_at) as last_visit FROM sales_invoices WHERE customer_id = ?", [c.id]);
         
-        // Fetch strictly locked Group Details
-        const groupRes = localDB.exec("SELECT * FROM customer_groups WHERE id = ? LIMIT 1", [c.group_id]);
-        const grp = groupRes.length > 0 ? (groupRes[0] as any) : { tax_type: 'INCLUSIVE', destination_code: 'LOC', group_name: 'RETAIL' };
+        // Fetch new price group details
+        const pgRes = localDB.exec("SELECT * FROM customer_price_groups WHERE id = ? LIMIT 1", [c.price_group_id]);
+        const pg = pgRes.length > 0 ? (pgRes[0] as any) : { discount_pct: 0, allow_credit: 1, credit_limit: 50000 };
 
         let lt_spend = 0;
         let last_visit = "First Visit";
@@ -231,18 +239,20 @@ export default function RetailPOS() {
            last_visit = mt.last_visit ? new Date(mt.last_visit as string).toLocaleDateString("en-IN") : "First Visit";
         }
 
-        const profileData = {
+        const profileData: CustomerProfile = {
           id: c.id,
           name: c.name || "UNNAMED",
-          phone: c.phone_number,
+          phone: c.phone_number || val,
           tier: (c.loyalty_tier || "BRONZE") as any,
           lifetimeSpend: lt_spend,
           lastVisit: last_visit,
-          points: Math.floor(lt_spend * 0.05),
-          taxType: (grp.tax_type || 'INCLUSIVE') as "INCLUSIVE" | "EXCLUSIVE",
-          destCode: (grp.destination_code || 'LOC') as "LOC" | "OUT",
-          isB2B: c.is_b2b === 1,
-          gstin: c.gstin
+          points: c.loyalty_points || Math.floor(lt_spend * 0.05),
+          taxType: "INCLUSIVE",
+          destCode: "LOC",
+          isB2B: c.is_b2b === 1 || false,
+          gstin: c.gstin,
+          pgAllowCredit: pg.allow_credit === 1,
+          pgCreditLimit: pg.credit_limit || 50000
         };
         setCustomerProfile(profileData);
         setRows(prev => prev.map(r => r.itemCode ? calcRow(r, profileData) : r));
@@ -313,9 +323,9 @@ export default function RetailPOS() {
     const trimmed = code.trim().toUpperCase();
 
     let result = localDB.exec(`
-      SELECT m.*, COALESCE(SUM(s.quantity_change), 0) as stock_qty 
+      SELECT m.*, COALESCE(SUM(s.qty_in - s.qty_out), 0) as stock_qty 
       FROM item_master m 
-      LEFT JOIN stock_ledger s ON m.id = s.item_id 
+      LEFT JOIN stock_ledger s ON m.item_code = s.item_code 
       WHERE m.item_code = ? OR m.barcode = ? 
       GROUP BY m.id LIMIT 1`, [trimmed, trimmed]);
 
@@ -380,16 +390,16 @@ export default function RetailPOS() {
     } else {
         if (query.trim().length === 0) {
           res = localDB.exec(`
-            SELECT m.item_code, m.description, m.size_code, m.mrp, COALESCE(SUM(s.quantity_change), 0) as stock_qty 
+            SELECT m.item_code, m.description, m.size_code, m.mrp, COALESCE(SUM(s.qty_in - s.qty_out), 0) as stock_qty 
             FROM item_master m 
-            LEFT JOIN stock_ledger s ON m.id = s.item_id 
+            LEFT JOIN stock_ledger s ON m.item_code = s.item_code 
             GROUP BY m.id LIMIT 50`);
         } else {
           const safeQ = `%${query.trim()}%`;
           res = localDB.exec(`
-            SELECT m.item_code, m.description, m.size_code, m.mrp, COALESCE(SUM(s.quantity_change), 0) as stock_qty 
+            SELECT m.item_code, m.description, m.size_code, m.mrp, COALESCE(SUM(s.qty_in - s.qty_out), 0) as stock_qty 
             FROM item_master m 
-            LEFT JOIN stock_ledger s ON m.id = s.item_id 
+            LEFT JOIN stock_ledger s ON m.item_code = s.item_code 
             WHERE m.item_code LIKE ? OR m.description LIKE ? OR m.barcode LIKE ?
             GROUP BY m.id LIMIT 50`, [safeQ, safeQ, safeQ]);
         }
@@ -460,8 +470,8 @@ export default function RetailPOS() {
       const taxType = customerProfile?.destCode === 'OUT' ? 'OUTSTATION' : 'LOCAL';
       const billingType = customerProfile?.isB2B ? 'B2B' : 'B2C';
 
-      localDB.run(`INSERT INTO sales_invoices (id, store_day_id, till_session_id, salesman_id, customer_id, invoice_number, bill_number, bill_date, subtotal, tax_amount, discount_amount, net_total, tax_type, billing_type, buyer_gstin, bill_type, status) VALUES (?, 'DAY-01', 'TILL-01', ?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, 'CASH', 'POSTED')`,
-        [invId, billSalesman || 'SM-01', finalCustomerId || 'WALK-IN', billNo, billNo, subtotal, totalTax, totalDisc, netTotal, taxType, billingType, customerProfile?.gstin || null]);
+      localDB.run(`INSERT INTO sales_invoices (id, store_day_id, till_session_id, salesman_id, customer_id, invoice_number, bill_number, bill_date, subtotal, tax_amount, discount_amount, net_total, tax_type, billing_type, buyer_gstin, bill_type, status) VALUES (?, 'DAY-01', 'TILL-01', ?, ?, ?, ?, date('now'), ?, ?, ?, ?, ?, ?, ?, ?, 'POSTED')`,
+        [invId, billSalesman || 'SM-01', finalCustomerId || 'WALK-IN', billNo, billNo, subtotal, totalTax, totalDisc, netTotal, taxType, billingType, customerProfile?.gstin || null, billType]);
 
       for (const t of tenders) {
         localDB.run(`INSERT INTO sales_payments (id, invoice_id, payment_mode, amount) VALUES (?, ?, ?, ?)`,
@@ -545,13 +555,35 @@ export default function RetailPOS() {
     }
   };
 
+  const handleOpenTender = () => {
+    if (activeItems.length === 0) {
+      alert("Cart is empty!");
+      return;
+    }
+    if (billType === "CREDIT") {
+       if (!customerProfile) {
+          alert("CUSTOMER IS MANDATORY FOR CREDIT BILLING");
+          return;
+       }
+       if (!customerProfile.pgAllowCredit) {
+          alert("CREDIT NOT ALLOWED FOR THIS PRICE GROUP!");
+          return;
+       }
+       if (netTotal > customerProfile.pgCreditLimit) {
+          const proceed = confirm(`SOFT WARNING: Credit limit of ₹${customerProfile.pgCreditLimit} exceeded! Proceed anyway?`);
+          if (!proceed) return;
+       }
+    }
+    setShowPayModal(true);
+  };
+
   // ─── Global Keyboard Shortcuts ───
   useEffect(() => {
     const handleGlobalKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "F2") { e.preventDefault(); setShowOmniModal(true); handleOmniSearch(""); }
       if (e.key === "F7") { e.preventDefault(); fetchTillStatus(); }
       if (e.key === "F8") { e.preventDefault(); handleHoldBill(); }
-      if (e.key === "F10" && !showPayModal) { e.preventDefault(); setShowPayModal(true); }
+      if (e.key === "F10" && !showPayModal) { e.preventDefault(); handleOpenTender(); }
       if (e.key === "Enter" && showPayModal && remainingDue === 0) { e.preventDefault(); handleSaveInvoice(tenders); }
       if (e.key === "Escape") { e.preventDefault(); 
         if (showPayModal || showRecallModal || showOmniModal || showCustomerForm || showTillStatus || showCustomerHistory) { setShowPayModal(false); setShowRecallModal(false); setShowOmniModal(false); setShowCustomerForm(false); setShowTillStatus(false); setShowCustomerHistory(false); }
@@ -591,6 +623,16 @@ export default function RetailPOS() {
              </div>
            </div>
            <div className="sh-doc-details">
+              <span>
+                <strong>Type:</strong> 
+                <select 
+                    value={billType} 
+                    onChange={(e) => setBillType(e.target.value as "CASH" | "CREDIT")}
+                    style={{ background: 'transparent', border: '1px solid #334155', color: '#38bdf8', fontSize: '10px', padding: '2px 4px', borderRadius: '4px', marginLeft: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                  <option value="CASH">CASH BILL</option>
+                  <option value="CREDIT">CREDIT BILL</option>
+                </select>
+              </span>
               <span><strong>Doc:</strong> {isReturnMode ? "SALES RETURN" : "RETAIL SALES"}</span>
               <span><strong>Bill No:</strong> <span className="emerald">{billNo}</span></span>
               <span><strong>Date:</strong> {billDate}</span>
@@ -600,13 +642,14 @@ export default function RetailPOS() {
         </div>
         <div className="sh-right">
            <div className="sh-input-group relative">
-              <label>Customer [F3]</label>
+              <label>Customer [F3] {billType === "CREDIT" && <span style={{color: '#f87171'}}>* REQUIRED</span>}</label>
               <input 
+                style={{ borderColor: (billType === "CREDIT" && !customerProfile) ? '#f87171' : undefined }}
                 value={customer} 
                 onChange={e => handleCustomerChange(e.target.value)} 
                 onFocus={() => setFocusedContext("CUSTOMERS")}
                 onKeyDown={handleCustomerKeyDown}
-                placeholder="SEARCH / ENTER NEW" 
+                placeholder={billType === "CREDIT" ? "CREDIT ID REQUIRED" : "SEARCH / ENTER NEW"} 
               />
            </div>
            <div className="sh-input-group">
@@ -745,6 +788,15 @@ export default function RetailPOS() {
                    <div style={{gridColumn: 'span 2', background: '#050a14', padding: '6px', borderRadius: '4px', textAlign: 'center', marginTop: '8px'}}>
                      <span className="amber font-bold" style={{ fontSize: '14px' }}>★ {customerProfile.points} PTS AVAILABLE</span>
                    </div>
+                   {billType === "CREDIT" && (
+                   <div style={{gridColumn: 'span 2', background: customerProfile.pgAllowCredit ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', border: customerProfile.pgAllowCredit ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)', padding: '6px', borderRadius: '4px', textAlign: 'center', marginTop: '4px'}}>
+                     {customerProfile.pgAllowCredit ? (
+                       <span style={{ color: '#10b981', fontSize: '12px', fontWeight: 'bold' }}>CREDIT APPROVED: Lmt ₹{customerProfile.pgCreditLimit.toLocaleString()}</span>
+                     ) : (
+                       <span style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold' }}>CREDIT NOT ALLOWED IN PRICE GROUP</span>
+                     )}
+                   </div>
+                   )}
                 </div>
                 <button 
                   style={{ width: '100%', marginTop: '12px', padding: '8px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', fontWeight: 800, letterSpacing: '1px' }}
@@ -795,7 +847,7 @@ export default function RetailPOS() {
          <div className="ribbon-btn" onClick={() => {}}><span>[F6]</span> B.DISC</div>
          <div className="ribbon-btn warning" onClick={handleHoldBill}><span>[F8]</span> HOLD BN</div>
          <div className="ribbon-btn" onClick={fetchSuspendedBills}><span>[F9]</span> Rcl BN</div>
-         <div className="ribbon-btn success" onClick={() => setShowPayModal(true)}><span>[F10]</span> TENDER</div>
+         <div className="ribbon-btn success" onClick={handleOpenTender}><span>[F10]</span> TENDER</div>
          <div className="ribbon-btn danger" onClick={handleClear}><span>[ESC]</span> CLEAR</div>
       </footer>
 

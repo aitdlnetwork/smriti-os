@@ -1,12 +1,16 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
  *  S M R I T I - O S  ||  CATALOGUE HUB
- *  Unified sidebar-driven catalogue management — Option C
- *  All dependent modules in one sovereign workspace
+ *  Prism Design System Edition
+ *  Unified sidebar-driven catalogue management — All modules in one workspace
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  System Architect  : Jawahar R Mallah
+ *  Parent Org        : AITDL NETWORK
+ *  Copyright         : © 2026 AITDL.com & AITDL.in. All Rights Reserved.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmritiDB } from "@/lib/useSmritiDB";
 import { localDB } from "@/lib/db";
@@ -19,6 +23,13 @@ import PriceRevisionManager from "@/components/PriceRevisionManager";
 import ItemMasterGrid from "@/components/ItemMasterGrid";
 import VendorMasterManager from "@/components/VendorMasterManager";
 import SystemSetupManager from "@/components/SystemSetupManager";
+import SizeManager from "@/components/SizeManager";
+import SalesPersonnelManager from "@/components/SalesPersonnelManager";
+import CustomerManager from "@/components/CustomerManager";
+import ChainStoreManager from "@/components/ChainStoreManager";
+import SalesFactorManager from "@/components/SalesFactorManager";
+import { Spinner, StatusBadge } from "@/components/ui";
+import { ChevronDown, ChevronRight, ArrowLeft, Layers } from "lucide-react";
 
 // ── Module Registry ───────────────────────────────────────────────────────────
 interface CatalogueModule {
@@ -33,7 +44,7 @@ const GROUPS = [
   { id: "pricing", label: "PRICING" },
   { id: "promotions", label: "PROMOTIONS" },
   { id: "masters", label: "MASTERS" },
-  { id: "config", label: "SYSTEM CONFIGURATION" }
+  { id: "config", label: "SYSTEM CONFIG" },
 ];
 
 export default function CatalogueHub() {
@@ -48,240 +59,210 @@ export default function CatalogueHub() {
     return n;
   });
 
-  if (!isReady) return <div className="hub-loading">⬡ Initializing Sovereign Engine…</div>;
-  if (error) return <div className="hub-error">Engine Error: {error}</div>;
+  if (!isReady) {
+    return (
+      <div style={{
+        minHeight: "100vh", background: "var(--color-bg)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexDirection: "column", gap: 16, color: "var(--color-text-tertiary)",
+        fontFamily: "var(--font-family)",
+      }}>
+        <Spinner size={32} color="var(--color-primary)" />
+        <p style={{ fontSize: "var(--font-size-md)", margin: 0 }}>Initializing Sovereign Engine…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{
+        minHeight: "100vh", background: "var(--color-bg)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: "var(--font-family)",
+      }}>
+        <p style={{ color: "var(--color-danger)", fontSize: "var(--font-size-lg)", fontWeight: 700 }}>Engine Error: {error}</p>
+      </div>
+    );
+  }
 
   const MODULES: CatalogueModule[] = [
-    {
-      id: "item-master", icon: "🏷️", label: "Item Master", desc: "SKU entry engine", group: "sku", color: "#0ea5e9", badge: "CORE",
-      component: <ItemMasterGrid />,
-    },
-    {
-      id: "item-classification", icon: "🏗️", label: "Item Classification", desc: "4-level taxonomy tree", group: "classification", color: "#a78bfa",
-      component: <ItemClassificationManager />,
-    },
-    {
-      id: "size-groups", icon: "📐", label: "Size Groups", desc: "Size set definitions", group: "classification", color: "#60a5fa",
-      component: <div style={{padding:"20px", color:"#ccc"}}>Size Groups Manager (WIP)</div>,
-    },
-    {
-      id: "general-lookup", icon: "🔍", label: "General Lookup", desc: "Universal attribute registry", group: "masters", color: "#fbbf24",
-      component: <GeneralLookupManager />,
-    },
-    {
-      id: "vendor-master", icon: "🏢", label: "Vendor Master", desc: "Supplier directory", group: "masters", color: "#38bdf8", badge: "NEW",
-      component: <VendorMasterManager />,
-    },
-    {
-      id: "tax-codes", icon: "🧮", label: "Tax Codes", desc: "GST slabs · HSN mapping", group: "pricing", color: "#10b981",
-      component: <TaxCatalogueManager />,
-    },
-    {
-      id: "price-revisions", icon: "💰", label: "Price Revisions", desc: "MRP revision journal", group: "pricing", color: "#fbbf24", badge: "JOURNAL",
-      component: <PriceRevisionManager />,
-    },
-    {
-      id: "payment-modes", icon: "💳", label: "Payment Modes", desc: "Tender configuration", group: "masters", color: "#3b82f6",
-      component: <PaymentModeManager />,
-    },
-    {
-      id: "sales-promotions", icon: "🎁", label: "Sales Promotions", desc: "Promo engine setup", group: "promotions", color: "#f59e0b",
-      component: <div style={{padding:"20px", color:"#ccc"}}>Promotions Engine (WIP)</div>,
-    },
-    {
-      id: "system-setup", icon: "⚙️", label: "System Parameters", desc: "Global sovereign settings", group: "config", color: "#f43f5e", badge: "CORE",
-      component: <SystemSetupManager />,
-    },
+    { id: "item-master", icon: "🏷️", label: "Item Master", desc: "SKU entry engine", group: "sku", color: "var(--color-info)", badge: "CORE", component: <ItemMasterGrid /> },
+    { id: "item-classification", icon: "🏗️", label: "Item Classification", desc: "4-level taxonomy", group: "classification", color: "var(--color-secondary)", component: <ItemClassificationManager /> },
+    { id: "size-groups", icon: "📐", label: "Size Groups", desc: "Size set definitions", group: "classification", color: "var(--color-primary)", component: <SizeManager /> },
+    { id: "general-lookup", icon: "🔍", label: "General Lookup", desc: "Universal attribute registry", group: "masters", color: "var(--color-warning)", component: <GeneralLookupManager /> },
+    { id: "vendor-master", icon: "🏢", label: "Vendor Master", desc: "Supplier directory", group: "masters", color: "var(--color-info)", component: <VendorMasterManager /> },
+    { id: "customer-master", icon: "👥", label: "Customer Catalogue", desc: "B2B & Loyalty DB", group: "masters", color: "var(--color-success)", badge: "NEW", component: <CustomerManager /> },
+    { id: "sales-personnel", icon: "👔", label: "Sales Personnel", desc: "Store Staff & Cashiers", group: "masters", color: "var(--color-secondary)", badge: "NEW", component: <SalesPersonnelManager /> },
+    { id: "chain-stores", icon: "🏪", label: "HO Chain Stores", desc: "Multi-node configuration", group: "masters", color: "var(--color-danger)", component: <ChainStoreManager /> },
+    { id: "tax-codes", icon: "🧮", label: "Tax Codes", desc: "GST slabs · HSN mapping", group: "pricing", color: "var(--color-success)", component: <TaxCatalogueManager /> },
+    { id: "sales-factors", icon: "📊", label: "Sales Factors", desc: "Discounts & Markups", group: "pricing", color: "var(--color-info)", badge: "NEW", component: <SalesFactorManager /> },
+    { id: "price-revisions", icon: "💰", label: "Price Revisions", desc: "MRP revision journal", group: "pricing", color: "var(--color-warning)", badge: "JOURNAL", component: <PriceRevisionManager /> },
+    { id: "payment-modes", icon: "💳", label: "Payment Modes", desc: "Tender configuration", group: "masters", color: "var(--color-primary)", component: <PaymentModeManager /> },
+    { id: "sales-promotions", icon: "🎁", label: "Sales Promotions", desc: "Promo engine setup", group: "promotions", color: "var(--color-warning)", component: <div style={{ padding: 20, color: "var(--color-text-tertiary)" }}>Promotions Engine (Coming Soon)</div> },
+    { id: "system-setup", icon: "⚙️", label: "System Parameters", desc: "Global sovereign settings", group: "config", color: "var(--color-danger)", badge: "CORE", component: <SystemSetupManager /> },
   ];
 
   const active = MODULES.find(m => m.id === activeId);
 
   return (
-    <div className="hub-shell">
-      {/* ── SIDEBAR── */}
-      <aside className="hub-sidebar">
-        <div className="sidebar-brand">
-          <button className="back-btn" onClick={() => router.push("/erp")}>← ERP</button>
-          <div className="brand-title">CATALOGUE HUB</div>
+    <div style={{
+      position: "fixed", inset: 0,
+      background: "var(--color-bg)",
+      color: "var(--color-text-primary)",
+      fontFamily: "var(--font-family)",
+      display: "flex",
+      overflow: "hidden",
+    }}>
+      {/* ─────────────────────────────────────────────────────────
+          SIDEBAR
+      ───────────────────────────────────────────────────────── */}
+      <aside style={{
+        width: 232, minWidth: 232,
+        background: "var(--color-surface-0)",
+        borderRight: "1px solid var(--color-border)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        {/* Sidebar Brand */}
+        <div style={{
+          padding: "16px 14px 14px",
+          borderBottom: "1px solid var(--color-border)",
+        }}>
+          <button
+            onClick={() => router.push("/erp")}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: "transparent", border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text-tertiary)", padding: "5px 10px",
+              borderRadius: "var(--radius-sm)", cursor: "pointer",
+              fontSize: "var(--font-size-xs)", fontFamily: "var(--font-family)",
+              fontWeight: 600, marginBottom: 12,
+              transition: "var(--transition)",
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-primary)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--color-border-strong)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-tertiary)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--color-border)"; }}
+          >
+            <ArrowLeft size={12} />
+            ERP
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Layers size={14} color="var(--color-primary)" />
+            <span style={{ fontSize: "var(--font-size-xs)", fontWeight: 900, color: "var(--color-text-secondary)", letterSpacing: "2px", textTransform: "uppercase" }}>Catalogue Hub</span>
+          </div>
         </div>
 
-        <nav className="sidebar-nav">
+        {/* Nav */}
+        <nav style={{ flex: 1, overflowY: "auto", padding: "8px 8px", display: "flex", flexDirection: "column", gap: 1 }}>
           {GROUPS.map(group => {
             const groupModules = MODULES.filter(m => m.group === group.id);
             if (!groupModules.length) return null;
             const isCollapsed = collapsed.has(group.id);
             return (
-              <div key={group.id} className="nav-group">
-                <div className="nav-group-header" onClick={() => toggleGroup(group.id)}>
-                  <span className="ngh-label">{group.label}</span>
-                  <span className="ngh-toggle">{isCollapsed ? "▸" : "▾"}</span>
-                </div>
-                {!isCollapsed && groupModules.map(mod => (
-                  <button
-                    key={mod.id}
-                    className={`nav-item ${activeId === mod.id ? "active" : ""}`}
-                    style={{ "--mod-color": mod.color } as any}
-                    onClick={() => setActiveId(mod.id)}
-                  >
-                    <span className="ni-icon">{mod.icon}</span>
-                    <div className="ni-text">
-                      <span className="ni-label">{mod.label}</span>
-                      <span className="ni-desc">{mod.desc}</span>
-                    </div>
-                    {mod.badge && <span className="ni-badge">{mod.badge}</span>}
-                  </button>
-                ))}
+              <div key={group.id}>
+                <button
+                  onClick={() => toggleGroup(group.id)}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "8px 8px 4px",
+                    background: "transparent", border: "none", cursor: "pointer",
+                    color: "var(--color-text-disabled)",
+                  }}
+                >
+                  <span style={{ fontSize: "var(--font-size-xs)", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase" }}>{group.label}</span>
+                  {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                </button>
+                {!isCollapsed && groupModules.map(mod => {
+                  const isActive = activeId === mod.id;
+                  return (
+                    <button
+                      key={mod.id}
+                      onClick={() => setActiveId(mod.id)}
+                      style={{
+                        width: "100%", display: "flex", alignItems: "center", gap: 10,
+                        padding: "8px 10px", borderRadius: "var(--radius-sm)",
+                        background: isActive ? "var(--color-surface-2)" : "transparent",
+                        border: `1px solid ${isActive ? "var(--color-border-strong)" : "transparent"}`,
+                        cursor: "pointer", textAlign: "left",
+                        fontFamily: "var(--font-family)", marginBottom: 1,
+                        transition: "var(--transition)",
+                      }}
+                      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-1)"; }}
+                      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                    >
+                      <span style={{ fontSize: 15, flexShrink: 0 }}>{mod.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: "var(--font-size-sm)", fontWeight: isActive ? 700 : 500,
+                          color: isActive ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                        }}>{mod.label}</div>
+                        <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", marginTop: 1 }}>{mod.desc}</div>
+                      </div>
+                      {mod.badge && (
+                        <span style={{
+                          fontSize: "9px", fontWeight: 900, letterSpacing: "0.5px",
+                          background: "var(--color-surface-3)",
+                          color: "var(--color-text-tertiary)",
+                          padding: "2px 6px", borderRadius: "var(--radius-pill)",
+                          whiteSpace: "nowrap",
+                        }}>{mod.badge}</span>
+                      )}
+                      {isActive && (
+                        <div style={{
+                          position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)",
+                          width: 3, height: "60%", borderRadius: "0 2px 2px 0",
+                          background: "var(--color-primary)",
+                        }} />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             );
           })}
         </nav>
 
-        <div className="sidebar-footer">
-          <div className="sf-engine">SOVEREIGN ENGINE</div>
-          <div className="sf-sub">Memory · Not Code</div>
+        {/* Sidebar Footer */}
+        <div style={{
+          padding: "12px 14px", borderTop: "1px solid var(--color-border)",
+          display: "flex", flexDirection: "column", gap: 2,
+        }}>
+          <div style={{ fontSize: "var(--font-size-xs)", fontWeight: 800, color: "var(--color-text-disabled)", letterSpacing: "1.5px", textTransform: "uppercase" }}>SOVEREIGN ENGINE</div>
+          <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", opacity: 0.5 }}>Memory · Not Code</div>
         </div>
       </aside>
 
-      {/* ── MAIN CONTENT ── */}
-      <main className="hub-main">
-        <div className="hub-breadcrumb">
-          <span className="bc-home">◈ SMRITI ERP</span>
-          <span className="bc-sep">›</span>
-          <span className="bc-page">{active?.label ?? "—"}</span>
-          {active?.badge && <span className="bc-badge" style={{ background: active.color + "22", color: active.color }}>{active.badge}</span>}
+      {/* ─────────────────────────────────────────────────────────
+          MAIN CONTENT
+      ───────────────────────────────────────────────────────── */}
+      <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Breadcrumb topbar */}
+        <div style={{
+          padding: "0 20px",
+          height: "var(--topbar-height)",
+          borderBottom: "1px solid var(--color-border)",
+          background: "rgba(5,7,15,0.85)", backdropFilter: "blur(16px)",
+          display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
+        }}>
+          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)" }}>◈ SMRITI ERP</span>
+          <ChevronRight size={10} color="var(--color-text-disabled)" />
+          <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)" }}>Catalogue Hub</span>
+          <ChevronRight size={10} color="var(--color-text-disabled)" />
+          <span style={{ fontSize: "var(--font-size-sm)", fontWeight: 600, color: "var(--color-text-primary)" }}>{active?.label ?? "—"}</span>
+          {active?.badge && <StatusBadge label={active.badge} type={active.badge === "CORE" ? "primary" : active.badge === "NEW" ? "success" : "warning"} />}
         </div>
-        <div className="hub-content">
-          {active?.component ?? <div className="hub-placeholder">Select a module from the sidebar.</div>}
+
+        {/* Module content */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {active?.component ?? (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flex: 1, color: "var(--color-text-tertiary)", fontSize: "var(--font-size-md)",
+            }}>
+              Select a module from the sidebar.
+            </div>
+          )}
         </div>
       </main>
-
-      <style jsx>{`
-        .hub-shell { display: flex; position: fixed; inset: 0; background: #000; color: #fff; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
-        .hub-loading, .hub-error { display: flex; align-items: center; justify-content: center; height: 100vh; font-size: 14px; color: #555; }
-        /* SIDEBAR */
-        .hub-sidebar { width: 240px; min-width: 240px; background: #020202; border-right: 1px solid #111; display: flex; flex-direction: column; overflow: hidden; }
-        .sidebar-brand { padding: 20px 16px 16px; border-bottom: 1px solid #111; }
-        .back-btn { background: transparent; border: 1px solid #1a1a1a; color: #444; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px; transition: all 0.15s; }
-        .back-btn:hover { border-color: #333; color: #888; }
-        .brand-title { font-size: 11px; font-weight: 900; color: #fbbf24; letter-spacing: 3px; }
-        .sidebar-nav { flex: 1; overflow-y: auto; padding: 8px 8px; display: flex; flex-direction: column; gap: 2px; }
-        .nav-group { display: flex; flex-direction: column; gap: 1px; }
-        .nav-group-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 8px 4px; cursor: pointer; }
-        .ngh-label { font-size: 8px; color: #444; font-weight: 900; letter-spacing: 1.5px; }
-        .ngh-toggle { font-size: 10px; color: #333; }
-        .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; background: transparent; border: 1px solid transparent; cursor: pointer; color: #555; transition: all 0.15s; text-align: left; width: 100%; font-family: 'JetBrains Mono', monospace; }
-        .nav-item:hover { background: #0a0a0a; border-color: #1a1a1a; color: #aaa; }
-        .nav-item.active { background: #0f0f1a; border-color: var(--mod-color, #333); color: var(--mod-color, #fff); }
-        .ni-icon { font-size: 16px; }
-        .ni-text { display: flex; flex-direction: column; gap: 1px; flex: 1; }
-        .ni-label { font-size: 11px; font-weight: 700; color: inherit; }
-        .ni-desc { font-size: 8px; color: #444; }
-        .nav-item.active .ni-desc { color: var(--mod-color, #555); opacity: 0.6; }
-        .ni-badge { font-size: 7px; font-weight: 900; background: var(--mod-color, #333)22; color: var(--mod-color, #555); padding: 2px 5px; border-radius: 3px; }
-        .sidebar-footer { padding: 14px 16px; border-top: 1px solid #0a0a0a; }
-        .sf-engine { font-size: 9px; color: #222; font-weight: 900; letter-spacing: 2px; }
-        .sf-sub { font-size: 8px; color: #1a1a1a; margin-top: 2px; }
-        /* MAIN */
-        .hub-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .hub-breadcrumb { padding: 12px 24px; border-bottom: 1px solid #0a0a0a; display: flex; align-items: center; gap: 8px; background: #020202; }
-        .bc-home { font-size: 10px; color: #333; }
-        .bc-sep { font-size: 10px; color: #222; }
-        .bc-page { font-size: 12px; font-weight: 700; color: #888; }
-        .bc-badge { font-size: 8px; font-weight: 900; padding: 2px 8px; border-radius: 4px; }
-        .hub-content { flex: 1; overflow: hidden; padding: 24px; display: flex; flex-direction: column; }
-        .hub-placeholder { display: flex; align-items: center; justify-content: center; flex: 1; font-size: 12px; color: #333; }
-      `}</style>
-    </div>
-  );
-}
-
-// ── Inline placeholder components ─────────────────────────────────────────────
-function SizeGroupsManager() {
-  const [groups, setGroups] = useState<any[]>([]);
-  const [editing, setEditing] = useState<any>(null);
-  const [toast, setToast] = useState("");
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 3000); };
-
-  const load = () => {
-    const r = localDB.exec(`SELECT * FROM size_groups ORDER BY name ASC`) as any[];
-    setGroups(r);
-  };
-  useEffect(() => { if (localDB.isInitialized) load(); }, []);
-
-  const handleSave = async () => {
-    if (!editing?.group_code || !editing?.name) return showToast("Code and Name required.");
-    const id = editing.id || uuidv4();
-    let sizes: string[] = [];
-    try { sizes = (editing.sizes_input ?? editing.sizes_json ?? "[]").split(",").map((s: string) => s.trim()).filter(Boolean); } catch {}
-    localDB.run(`INSERT OR REPLACE INTO size_groups (id,group_code,name,sizes_json) VALUES (?,?,?,?)`, [id, editing.group_code.toUpperCase(), editing.name, JSON.stringify(sizes)]);
-    await localDB.save();
-    load();
-    setEditing(null);
-    showToast("✓ Size group saved.");
-  };
-
-  return (
-    <div style={{ color: "#fff", fontFamily: "JetBrains Mono", display: "flex", flexDirection: "column", gap: 16 }}>
-      {toast && <div style={{ position: "fixed", bottom: 32, right: 32, background: "#0f172a", border: "1px solid #334155", color: "#94a3b8", padding: "12px 20px", borderRadius: 10, fontSize: 12 }}>{toast}</div>}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 900, color: "#60a5fa", letterSpacing: 2 }}>SIZE GROUPS</div>
-          <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Define size sets for classification-linked auto-matrix</div>
-        </div>
-        <button style={{ background: "#60a5fa", color: "#000", border: "none", padding: "10px 18px", borderRadius: 8, fontWeight: 900, cursor: "pointer" }} onClick={() => setEditing({ group_code: "", name: "", sizes_input: "S, M, L, XL" })}>＋ ADD GROUP</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
-        {groups.map(sg => {
-          let sizes: string[] = [];
-          try { sizes = JSON.parse(sg.sizes_json); } catch {}
-          return (
-            <div key={sg.id} style={{ background: "#050505", border: "1px solid #1a1a1a", borderRadius: 12, padding: 18 }}>
-              <div style={{ fontSize: 13, fontWeight: 900, color: "#60a5fa" }}>{sg.group_code}</div>
-              <div style={{ fontSize: 11, color: "#aaa", margin: "4px 0 10px" }}>{sg.name}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {sizes.map((s: string) => <span key={s} style={{ fontSize: 10, background: "#0c1e38", color: "#60a5fa", padding: "3px 8px", borderRadius: 4 }}>{s}</span>)}
-              </div>
-              <button style={{ marginTop: 12, background: "#111", border: "1px solid #222", color: "#666", padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontSize: 11 }} onClick={() => setEditing({ ...sg, sizes_input: sizes.join(", ") })}>Edit</button>
-            </div>
-          );
-        })}
-      </div>
-      {editing && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={() => setEditing(null)}>
-          <div style={{ background: "#0a0a0a", border: "1px solid #333", borderRadius: 16, padding: 28, width: 440, display: "flex", flexDirection: "column", gap: 16 }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 14, fontWeight: 900, color: "#60a5fa" }}>SIZE GROUP</div>
-            {[["GROUP CODE", "group_code"], ["NAME", "name"]].map(([l, k]) => (
-              <div key={k} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ fontSize: 9, color: "#555", fontWeight: 700 }}>{l}</label>
-                <input value={editing[k] ?? ""} onChange={e => setEditing((p: any) => ({ ...p, [k]: e.target.value.toUpperCase() }))} style={{ background: "#111", border: "1px solid #333", color: "#fff", padding: "9px 12px", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "JetBrains Mono" }} />
-              </div>
-            ))}
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              <label style={{ fontSize: 9, color: "#555", fontWeight: 700 }}>SIZES (comma-separated)</label>
-              <input value={editing.sizes_input ?? ""} onChange={e => setEditing((p: any) => ({ ...p, sizes_input: e.target.value }))} placeholder="S, M, L, XL, XXL" style={{ background: "#111", border: "1px solid #333", color: "#60a5fa", padding: "9px 12px", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "JetBrains Mono" }} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button style={{ background: "#111", border: "1px solid #333", color: "#666", padding: "10px 20px", borderRadius: 8, cursor: "pointer" }} onClick={() => setEditing(null)}>CANCEL</button>
-              <button style={{ background: "#60a5fa", color: "#000", border: "none", padding: "10px 24px", borderRadius: 8, fontWeight: 900, cursor: "pointer" }} onClick={handleSave}>SAVE</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PromotionPlaceholder() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 16, color: "#333", fontFamily: "JetBrains Mono" }}>
-      <div style={{ fontSize: 36 }}>🎁</div>
-      <div style={{ fontSize: 16, fontWeight: 900, color: "#f59e0b" }}>SALES PROMOTIONS</div>
-      <div style={{ fontSize: 12, color: "#444", textAlign: "center", lineHeight: 2 }}>
-        Promotion engine includes:<br />
-        Item Discount · Bill Discount · BOGO · Bundle · Fixed Price<br />
-        Date Range · Classification Filter · Priority Rules<br />
-      </div>
-      <div style={{ fontSize: 10, color: "#222", border: "1px solid #1a1a1a", borderRadius: 8, padding: "10px 20px" }}>PHASE 2 — Available in next release</div>
     </div>
   );
 }

@@ -168,6 +168,52 @@ class SmritiDatabase {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // ── MIGRATION 4B: Parity Tables (Size, Sales, Customer, Store, Factors) ───
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS size_master (
+        id TEXT PRIMARY KEY, 
+        group_code TEXT UNIQUE NOT NULL, 
+        name TEXT NOT NULL, 
+        sizes_json TEXT DEFAULT '[]'
+      );
+      CREATE TABLE IF NOT EXISTS salesman_master (
+        id TEXT PRIMARY KEY,
+        salesman_code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        commission_pct REAL DEFAULT 0,
+        is_active INTEGER DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS customer_price_groups (
+        id TEXT PRIMARY KEY,
+        group_code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        discount_pct REAL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS customer_master (
+        id TEXT PRIMARY KEY,
+        customer_code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        address1 TEXT,
+        price_group_id TEXT,
+        loyalty_points REAL DEFAULT 0,
+        is_active INTEGER DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS ho_chain_stores (
+        id TEXT PRIMARY KEY,
+        store_code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        location TEXT
+      );
+      CREATE TABLE IF NOT EXISTS sales_factors (
+        id TEXT PRIMARY KEY,
+        factor_code TEXT UNIQUE NOT NULL,
+        description TEXT NOT NULL,
+        factor_type TEXT,
+        default_value REAL DEFAULT 0
+      );
+    `);
 
     // ── MIGRATION 5: Price Revisions ──────────────────────────────────────────
     this.db.run(`
@@ -269,7 +315,7 @@ class SmritiDatabase {
 
     // ── SEED: Size Groups ─────────────────────────────────────────────────────
     this.db.run(`
-      INSERT OR IGNORE INTO size_groups (id, group_code, name, sizes_json) VALUES
+      INSERT OR IGNORE INTO size_master (id, group_code, name, sizes_json) VALUES
         ('sg1','APPAREL_STD','Standard Apparel','["XS","S","M","L","XL","XXL","3XL"]'),
         ('sg2','FOOTWEAR_STD','Standard Footwear','["6","7","8","9","10","11","12"]'),
         ('sg3','FREE_SIZE','Free Size','["FREE"]'),
@@ -277,7 +323,19 @@ class SmritiDatabase {
         ('sg5','NUMERIC_28_38','Bottom Numeric','["28","30","32","34","36","38","40"]');
     `);
 
-    // ── SEED: Core Store + Numbering ──────────────────────────────────────────
+    // ── SEED: Core Store + Numbering + Parity Tests ───────────────
+    try { this.db.run(`ALTER TABLE customer_price_groups ADD COLUMN allow_credit INTEGER DEFAULT 1`); } catch {}
+    try { this.db.run(`ALTER TABLE customer_price_groups ADD COLUMN credit_limit REAL DEFAULT 50000`); } catch {}
+    
+    this.db.run(`
+      INSERT OR IGNORE INTO customer_price_groups (id, group_code, name, discount_pct, allow_credit, credit_limit) 
+      VALUES ('pg-corp', 'CORP', 'Corporate Accounts', 15.0, 1, 10000);
+
+      UPDATE customer_price_groups SET allow_credit = 1, credit_limit = 10000 WHERE group_code = 'CORP';
+
+      INSERT OR IGNORE INTO customer_master (id, customer_code, name, phone, email, price_group_id, is_active)
+      VALUES ('c-001', 'CUST001', 'AITDL Network Corp', '9876543210', 'billing@aitdl.in', 'pg-corp', 1);
+    `);
     this.db.run(`
       INSERT OR IGNORE INTO style_master (id, style_code, description, brand_code, class_code, subclass_code, department_code, season_code)
       VALUES ('s1', 'POLO-TSHIRT', 'Premium Cotton Polo', 'ADIDAS', 'APPAREL', 'TSHIRTS', 'MENS', 'SS2024');

@@ -10,19 +10,30 @@
  *  CONTACT           : aitdlnetwork@outlook.com | jawahar@aitdl.in
  * ─────────────────────────────────────────────────────────────────────────────
  *
- *  Module : Goods Inwards (Legacy Shoper 9 Fidelity)
+ *  Module : Goods Inwards (Prism Design System Edition)
  *  Desc   : High-speed, keyboard-driven GRN engine with Native WASM SQLite payload.
+ *           Migrated from legacy erp-shell to Prism PageShell + Card + Button system.
  */
 
 "use client";
 
-import React, { useState, useEffect, useRef, KeyboardEvent, useCallback } from "react";
-import Link from "next/link";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useSysParam } from "@/hooks/useSysParam";
 import { useSmritiDB } from "@/lib/useSmritiDB";
 import { useRouter } from "next/navigation";
 import poService from "@/lib/services/poService";
 import grnService from "@/lib/services/grnService";
+import PageShell from "@/components/ui/PageShell";
+import {
+  Button, Card, SectionHeader, StatusBadge, FormField, DataTable, Divider,
+  TableColumn, inputStyles,
+} from "@/components/ui";
+import {
+  Package, Plus, Search, Zap, Keyboard, X, CheckCircle2,
+  AlertCircle, FileDown, ChevronDown, ArrowUpRight, Layers,
+} from "lucide-react";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface GRN {
   id?: string;
   grn_number: string;
@@ -38,9 +49,6 @@ interface Item {
   description: string;
   mrp: number;
   mop?: number;
-  brand_code?: string;
-  class_code?: string;
-  size_code?: string;
 }
 
 interface GRNLineItem {
@@ -57,54 +65,59 @@ interface GRNLineItem {
   line_total?: number;
 }
 
+// ─── Prism Input Style ────────────────────────────────────────────────────────
+const fieldInput: React.CSSProperties = {
+  ...inputStyles,
+  padding: "8px 12px",
+  fontSize: "var(--font-size-sm)",
+};
+
+// ─── GRN Module ───────────────────────────────────────────────────────────────
 export default function GoodsInwardModule() {
   const { isReady, error, db } = useSmritiDB();
   const router = useRouter();
 
-  // ── States ───────────────────────────────────────────────────────────────
+  // ── Sovereign System Parameters ────────────────────────────────────────
+  const grnPrefix = useSysParam("DocumentPrefix", "grn_prefix", "GRN/");
+  const allowPdtLoading = useSysParam("Inwards", "allow_pdt_loading", "1") === "1";
+
+  // ── States ──────────────────────────────────────────────────────────────
   const [grns, setGrns] = useState<GRN[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
-
-  const showToast = (msg: string, type: "ok" | "err" = "ok") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+  const [saving, setSaving] = useState(false);
 
   // Header State
   const [vendorCode, setVendorCode] = useState("VEND-AITDL-01");
-  const [documentNo, setDocumentNo] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [fetchedPoId, setFetchedPoId] = useState("");
   const [gateEntryNo, setGateEntryNo] = useState("");
-  const [documentDate, setDocumentDate] = useState(new Date().toISOString().split('T')[0]);
-  const [transportLR, setTransportLR] = useState("");
   const [freightCharges, setFreightCharges] = useState(0);
 
   // Line Items
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
-  const [lastSavedGRN, setLastSavedGRN] = useState<{id: string, items: any[]} | null>(null);
 
-  // Search State
-  const [scannerInput, setScannerInput] = useState("");
+  // Search / Lookup Modal
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Item[]>([]);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isLookupModalOpen, setIsLookupModalOpen] = useState(false);
+  const [isLookupOpen, setIsLookupOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [searchOperator, setSearchOperator] = useState<":" | ">" | "<" | "=">(":");
 
-  // Refs
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const showToast = (msg: string, type: "ok" | "err" = "ok") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4500);
+  };
 
   // ── Data Management ──────────────────────────────────────────────────────
   const loadData = useCallback(() => {
     if (!db) return;
     try {
       const sql = `
-        SELECT g.grn_number, v.name as vendor_name, g.status, g.created_at, IFNULL(SUM(gi.qty_received), 0) as total_qty
+        SELECT g.grn_number, v.name as vendor_name, g.status, g.created_at,
+               IFNULL(SUM(gi.qty_received), 0) as total_qty
         FROM goods_inward g
         LEFT JOIN vendors v ON g.vendor_id = v.id
         LEFT JOIN goods_inward_items gi ON g.id = gi.grn_id
@@ -113,370 +126,521 @@ export default function GoodsInwardModule() {
       `;
       const res = db.exec(sql);
       setGrns(res as unknown as GRN[]);
-
-      const itemRes = db.exec("SELECT id, item_code, description, mrp, mop, brand_code, class_code, size_code FROM item_master");
+      const itemRes = db.exec("SELECT id, item_code, description, mrp, mop FROM item_master");
       setItems(itemRes as unknown as Item[]);
     } catch (err) { console.error(err); }
   }, [db]);
 
-  useEffect(() => {
-    if (isReady) {
-      loadData();
-    }
-  }, [isReady, loadData]);
+  useEffect(() => { if (isReady) loadData(); }, [isReady, loadData]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Business Logic ──────────────────────────────────────────────────────
   const handleRetrievePO = () => {
     if (!poNumber) return showToast("Enter an active PO number.", "err");
     const po = poService.getPOByNumber(poNumber);
     if (!po.header) return showToast("PO not found or already closed.", "err");
-    
     setFetchedPoId(String(po.header.id));
-    setInvoiceNo(""); // clear out generic stuff
-    
     const newLines = po.items.map(i => {
-       const qtyOrd = Number(i.qty_ordered) || 0;
-       const qtyRcv = Number(i.qty_received) || 0;
-       const pending = qtyOrd - qtyRcv;
-       return {
-         id: crypto.randomUUID(),
-         item_id: String(i.item_id || ""),
-         item_code: String(i.item_code),
-         billed_qty: qtyOrd, 
-         received_qty: pending > 0 ? pending : 0, 
-         rejected_qty: 0,
-         rate: Number(i.unit_rate) || 0,
-         tax_pct: Number(i.tax_pct) || 0,
-         tax_amt: Number(i.tax_amount) || 0,
-         landed_rate: Number(i.unit_rate)
-       };
+      const qtyOrd = Number(i.qty_ordered) || 0;
+      const qtyRcv = Number(i.qty_received) || 0;
+      const pending = qtyOrd - qtyRcv;
+      return {
+        id: crypto.randomUUID(),
+        item_id: String(i.item_id || ""),
+        item_code: String(i.item_code),
+        billed_qty: qtyOrd,
+        received_qty: pending > 0 ? pending : 0,
+        rejected_qty: 0,
+        rate: Number(i.unit_rate) || 0,
+        tax_pct: Number(i.tax_pct) || 0,
+        tax_amt: Number(i.tax_amount) || 0,
+        landed_rate: Number(i.unit_rate),
+      };
     });
     setLineItems(newLines as any);
-    showToast(`Loaded PO with ${newLines.length} pending items.`, "ok");
-  };
-
-  const handleAddLineItem = () => {
-    if (items.length === 0) return showToast("No items in master. Add items via Item Master first.", "err");
-    const first = items[0];
-    setLineItems(prev => [
-      ...prev, 
-      { 
-        id: crypto.randomUUID(), 
-        item_id: first.id, 
-        item_code: first.item_code, 
-        billed_qty: 1, 
-        received_qty: 1, 
-        rejected_qty: 0,
-        rate: first.mrp * 0.7,
-        tax_pct: 18,
-        tax_amt: (first.mrp * 0.7) * 0.18,
-        landed_rate: (first.mrp * 0.7) * 1.18
-      }
-    ]);
-  };
-
-  const handleSaveGRN = async () => {
-    if (!db) return;
-    if (lineItems.length === 0) return showToast("Cannot inward an empty GRN.", "err");
-
-    // Partial Supply Validation
-    for (const item of lineItems) {
-      if (item.received_qty > item.billed_qty) {
-         return showToast(`Over-receipt not allowed for ${item.item_code}. Check partial supply config.`, "err");
-      }
-    }
-
-    try {
-      const headerObj = {
-        vendor_code: vendorCode,
-        vendor_name: vendorCode, 
-        po_reference: poNumber,
-        po_id: fetchedPoId,
-        supplier_invoice_no: invoiceNo,
-        remarks: gateEntryNo,
-      };
-
-      const itemsObj = lineItems.map(l => ({
-         item_code: l.item_code,
-         qty_ordered: l.billed_qty,
-         qty_received: l.received_qty,
-         qty_accepted: l.received_qty - l.rejected_qty,
-         unit_cost: l.rate,
-         tax_pct: l.tax_pct,
-         discount_pct: 0
-      }));
-
-      const res = await grnService.postGRN(headerObj, itemsObj as any);
-      
-      if (res.success) {
-         setLineItems([]);
-         setDocumentNo("");
-         setInvoiceNo("");
-         setGateEntryNo("");
-         setPoNumber("");
-         setFetchedPoId("");
-         setFreightCharges(0);
-         setIsAdding(false);
-         loadData();
-         showToast(`✓ Enterprise GRN [${res.grn_number}] Posted Successfully.`, "ok");
-      } else {
-         showToast(`✗ Failed to post GRN: ${res.error}`, "err");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("✗ Database write failed. GRN not posted.", "err");
-    }
+    showToast(`✓ PO loaded — ${newLines.length} pending line items.`, "ok");
   };
 
   const selectItem = (item: Item) => {
     setLineItems(prev => {
-       const existingIdx = prev.findIndex(l => l.item_id === item.id);
-       if (existingIdx >= 0) {
-         const updated = [...prev];
-         updated[existingIdx].received_qty += 1;
-         return updated;
-       } else {
-         return [...prev, {
-            id: crypto.randomUUID(),
-            item_id: item.id,
-            item_code: item.item_code,
-            billed_qty: 1,
-            received_qty: 1,
-            rejected_qty: 0,
-            rate: item.mrp * 0.7,
-            tax_pct: 18,
-            tax_amt: (item.mrp * 0.7) * 0.18,
-            landed_rate: (item.mrp * 0.7) * 1.18
-         }];
-       }
-    });
-    setSearchQuery("");
-    setIsLookupModalOpen(false);
-  };
-
-  // ── Hotkeys ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const handler = (e: globalThis.KeyboardEvent) => {
-      if (!isAdding) return;
-      if (e.key === "F2") { e.preventDefault(); setIsLookupModalOpen(true); }
-      if (e.key === "F3") {
-        e.preventDefault();
-        if (isLookupModalOpen) {
-          const ops: (":" | ">" | "<" | "=")[] = [":", ">", "<", "="];
-          setSearchOperator(prev => ops[(ops.indexOf(prev) + 1) % ops.length]);
-        } else {
-          handleAddLineItem();
-        }
-      }
-      if (e.key === "F10") { e.preventDefault(); handleSaveGRN(); }
-      if (e.key === "Escape") { setIsLookupModalOpen(false); setIsSearchOpen(false); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isAdding, isLookupModalOpen, items]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  const handleUpdateLine = (id: string, field: string, value: any) => {
-    setLineItems(prev => prev.map(line => {
-      if (line.id === id) {
-        const updated = { ...line, [field]: value };
-        if (field === "item_id") {
-          const matchedItem = items.find(i => i.id === value);
-          if (matchedItem) {
-            updated.item_code = matchedItem.item_code;
-            updated.rate = matchedItem.mrp * 0.7;
-          }
-        }
-        updated.tax_amt = (updated.rate * updated.received_qty * updated.tax_pct) / 100;
+      const existingIdx = prev.findIndex(l => l.item_id === item.id);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx].received_qty += 1;
         return updated;
       }
-      return line;
+      return [...prev, {
+        id: crypto.randomUUID(),
+        item_id: item.id,
+        item_code: item.item_code,
+        billed_qty: 1,
+        received_qty: 1,
+        rejected_qty: 0,
+        rate: item.mrp * 0.7,
+        tax_pct: 18,
+        tax_amt: (item.mrp * 0.7) * 0.18,
+        landed_rate: (item.mrp * 0.7) * 1.18,
+      }];
+    });
+    setSearchQuery("");
+    setIsLookupOpen(false);
+  };
+
+  const handleUpdateLine = (id: string, field: string, value: any) => {
+    setLineItems(prev => prev.map(line => {
+      if (line.id !== id) return line;
+      const updated = { ...line, [field]: value };
+      if (field === "item_id") {
+        const matched = items.find(i => i.id === value);
+        if (matched) { updated.item_code = matched.item_code; updated.rate = matched.mrp * 0.7; }
+      }
+      updated.tax_amt = (updated.rate * updated.received_qty * updated.tax_pct) / 100;
+      return updated;
     }));
   };
 
   const getLineTotals = () => {
     const subtotal = lineItems.reduce((acc, l) => acc + (l.rate * l.received_qty), 0);
     return lineItems.map(l => {
-      const lineSubtotal = l.rate * l.received_qty;
-      const weight = subtotal > 0 ? (lineSubtotal / subtotal) : (1 / lineItems.length);
+      const lineSub = l.rate * l.received_qty;
+      const weight = subtotal > 0 ? (lineSub / subtotal) : (1 / lineItems.length);
       const lineFreight = freightCharges * weight;
       const netQty = (l.received_qty - l.rejected_qty) || 1;
       return {
         ...l,
-        line_total: lineSubtotal + l.tax_amt,
-        landed_rate: (lineSubtotal + (l.tax_amt || 0) + lineFreight) / netQty
+        line_total: lineSub + l.tax_amt,
+        landed_rate: (lineSub + (l.tax_amt || 0) + lineFreight) / netQty,
       };
     });
   };
 
-  if (!isReady && !error) return <div className="erp-loading"><div className="erp-spinner" /></div>;
+  const grandTotal = getLineTotals().reduce((a, c) => a + (c.line_total || 0), 0);
+
+  const handleSaveGRN = async () => {
+    if (!db) return;
+    if (lineItems.length === 0) return showToast("Cannot save an empty GRN.", "err");
+    for (const item of lineItems) {
+      if (item.received_qty > item.billed_qty)
+        return showToast(`Over-receipt blocked for ${item.item_code}. Check partial supply config.`, "err");
+    }
+    setSaving(true);
+    try {
+      const headerObj = {
+        vendor_code: vendorCode,
+        vendor_name: vendorCode,
+        po_reference: poNumber,
+        po_id: fetchedPoId,
+        supplier_invoice_no: invoiceNo,
+        remarks: gateEntryNo,
+      };
+      const itemsObj = lineItems.map(l => ({
+        item_code: l.item_code,
+        qty_ordered: l.billed_qty,
+        qty_received: l.received_qty,
+        qty_accepted: l.received_qty - l.rejected_qty,
+        unit_cost: l.rate,
+        tax_pct: l.tax_pct,
+        discount_pct: 0,
+      }));
+      const res = await grnService.postGRN(headerObj, itemsObj as any);
+      if (res.success) {
+        setLineItems([]); setInvoiceNo(""); setGateEntryNo("");
+        setPoNumber(""); setFetchedPoId(""); setFreightCharges(0);
+        setIsAdding(false); loadData();
+        showToast(`✓ GRN [${res.grn_number}] posted successfully.`, "ok");
+      } else {
+        showToast(`✗ Failed: ${res.error}`, "err");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("✗ Database write failed. GRN not posted.", "err");
+    }
+    setSaving(false);
+  };
+
+  // ── Hotkeys ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (!isAdding) return;
+      if (e.key === "F2") { e.preventDefault(); setIsLookupOpen(true); }
+      if (e.key === "F3") {
+        e.preventDefault();
+        if (isLookupOpen) {
+          const ops: (":" | ">" | "<" | "=")[] = [":", ">", "<", "="];
+          setSearchOperator(prev => ops[(ops.indexOf(prev) + 1) % ops.length]);
+        }
+      }
+      if (e.key === "F10") { e.preventDefault(); handleSaveGRN(); }
+      if (e.key === "Escape") { setIsLookupOpen(false); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isAdding, isLookupOpen, lineItems]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Loading/Error ────────────────────────────────────────────────────────
+  if (!isReady && !error)
+    return <PageShell title="Goods Inward" loading breadcrumbs={[{ label: "ERP", href: "/erp" }, { label: "Procurement" }]}>{null}</PageShell>;
+
+  // ── GRN List Columns ─────────────────────────────────────────────────────
+  const grnColumns: TableColumn<Record<string, unknown>>[] = [
+    {
+      key: "grn_number", header: "GRN #", width: "180px",
+      render: (v) => <span style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--color-primary)" }}>{String(v)}</span>,
+    },
+    { key: "vendor_name", header: "Vendor" },
+    {
+      key: "total_qty", header: "Qty", width: "80px", align: "right",
+      render: (v) => <span style={{ fontWeight: 700 }}>{String(v)}</span>,
+    },
+    {
+      key: "status", header: "Status", width: "120px",
+      render: (v) => <StatusBadge label={String(v)} />,
+    },
+    {
+      key: "created_at", header: "Date", width: "150px",
+      render: (v) => <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-xs)" }}>{new Date(String(v)).toLocaleDateString("en-IN")}</span>,
+    },
+  ];
 
   return (
-    <div className="erp-shell">
+    <PageShell
+      title="Goods Inward (GRN)"
+      subtitle={`High-velocity keyboard-driven receiving engine. Current Series: ${grnPrefix}`}
+      icon={<Package size={18} />}
+      statusDot="online"
+      breadcrumbs={[{ label: "ERP", href: "/erp" }, { label: "Procurement" }]}
+      actions={
+        isAdding ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button variant="ghost" size="sm" icon={<X size={14} />} onClick={() => { setIsAdding(false); setLineItems([]); }}>Cancel</Button>
+            {allowPdtLoading && <Button variant="ghost" size="sm" icon={<FileDown size={14} />}>Load PDT</Button>}
+            <Button variant="secondary" size="sm" icon={<Zap size={14} />} onClick={() => setIsLookupOpen(true)}>F2 Add Item</Button>
+            <Button variant="primary" size="sm" loading={saving} icon={<CheckCircle2 size={14} />} onClick={handleSaveGRN}>Post GRN [F10]</Button>
+          </div>
+        ) : (
+          <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setIsAdding(true)}>New Shipment</Button>
+        )
+      }
+    >
+
       {/* ── Toast ── */}
       {toast && (
         <div style={{
-          position: "fixed", bottom: 32, right: 32, zIndex: 9999,
-          background: toast.type === "ok" ? "#064e3b" : "#450a0a",
-          border: `1px solid ${toast.type === "ok" ? "#10b981" : "#f87171"}`,
-          color: toast.type === "ok" ? "#6ee7b7" : "#fca5a5",
-          padding: "12px 22px", borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: "monospace"
-        }}>{toast.msg}</div>
-      )}
-      {/* ── Lookup Modal ── */}
-      {isLookupModalOpen && (
-        <div className="shp-modal-deep" onClick={() => setIsLookupModalOpen(false)}>
-           <div className="shp-modal-content" onClick={e => e.stopPropagation()}>
-              <div className="shp-modal-header">
-                <div>
-                   <div style={{ fontWeight: 900, textTransform: "uppercase", letterSpacing: "2px" }}>⚡ F2 Discovery</div>
-                   <div style={{ fontSize: "11px", color: "#666" }}>F3 Toggle Filter [{searchOperator}]</div>
-                </div>
-                <button onClick={() => setIsLookupModalOpen(false)}>✕</button>
-              </div>
-              <div className="shp-modal-search">
-                 <div className="shp-operator-badge">{searchOperator}</div>
-                 <input 
-                    autoFocus 
-                    placeholder="Search master items..." 
-                    value={searchQuery}
-                    onChange={e => {
-                       const v = e.target.value;
-                       setSearchQuery(v);
-                       if (v.trim()) {
-                          let matches = items;
-                          const val = v.toLowerCase();
-                          const num = parseFloat(v);
-                          if (searchOperator === ":") matches = items.filter(i => i.description.toLowerCase().includes(val) || i.item_code.toLowerCase().includes(val));
-                          else if (searchOperator === "=") matches = items.filter(i => i.item_code.toLowerCase() === val);
-                          else if (searchOperator === ">" && !isNaN(num)) matches = items.filter(i => i.mrp > num);
-                          else if (searchOperator === "<" && !isNaN(num)) matches = items.filter(i => i.mrp < num);
-                          setSearchResults(matches.slice(0, 10));
-                          setActiveIndex(0);
-                       } else {
-                          setSearchResults(items.slice(0, 10));
-                       }
-                    }}
-                    onKeyDown={e => {
-                       if (e.key === "ArrowDown") { e.preventDefault(); setActiveIndex(p => (p+1) % searchResults.length); }
-                       if (e.key === "ArrowUp") { e.preventDefault(); setActiveIndex(p => (p-1+searchResults.length) % searchResults.length); }
-                       if (e.key === "Enter" && searchResults[activeIndex]) selectItem(searchResults[activeIndex]);
-                    }}
-                 />
-              </div>
-              <div className="shp-modal-results">
-                 {searchResults.map((item, idx) => (
-                    <div key={item.id} className={`shp-modal-row ${idx === activeIndex ? "active" : ""}`} onClick={() => selectItem(item)}>
-                       <div>
-                          <div className="title">{item.description}</div>
-                          <div className="sku">[{item.item_code}]</div>
-                       </div>
-                       <div className="mrp">₹{item.mrp}</div>
-                    </div>
-                 ))}
-              </div>
-           </div>
+          position: "fixed", bottom: 28, right: 28, zIndex: 9999,
+          background: toast.type === "ok" ? "var(--color-success-tonal)" : "var(--color-danger-tonal)",
+          border: `1px solid ${toast.type === "ok" ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"}`,
+          color: toast.type === "ok" ? "var(--color-success)" : "var(--color-danger)",
+          padding: "13px 20px", borderRadius: "var(--radius-md)",
+          fontSize: "var(--font-size-sm)", fontWeight: 600,
+          display: "flex", alignItems: "center", gap: 10,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+          animation: "prism-slide-up 0.25s var(--motion-ease)",
+        }}>
+          {toast.type === "ok" ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          {toast.msg}
         </div>
       )}
 
-      <header className="erp-topbar">
-        <div className="erp-topbar-left">
-          <Link href="/erp">← Back</Link>
-          <span style={{ marginLeft: 10, fontWeight: 900 }}>SHOPER 9: GOODS INWARDS</span>
-        </div>
-      </header>
+      {/* ── F2 Item Discovery Modal ── */}
+      {isLookupOpen && (
+        <div
+          onClick={() => setIsLookupOpen(false)}
+          style={{
+            position: "fixed", inset: 0,
+            background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
+            zIndex: 9000, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 80,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: 580, background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+              borderRadius: "var(--radius-lg)", overflow: "hidden",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: "14px 20px", borderBottom: "1px solid var(--color-border)",
+              background: "var(--color-surface-2)",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Zap size={14} color="var(--color-primary)" />
+                <span style={{ fontWeight: 700, fontSize: "var(--font-size-md)", color: "var(--color-text-primary)" }}>F2 Item Discovery</span>
+                <StatusBadge label={`Filter: ${searchOperator}`} type="info" />
+                <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>F3 to cycle filter</span>
+              </div>
+              <Button variant="ghost" size="xs" icon={<X size={13} />} onClick={() => setIsLookupOpen(false)} />
+            </div>
 
-      <main style={{ padding: 20, flex: 1, overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-           <h1 style={{ margin: 0 }}>GRN Processor</h1>
-           <button onClick={() => setIsAdding(!isAdding)}>{isAdding ? "Cancel" : "New Shipment"}</button>
-        </div>
+            {/* Search Input */}
+            <div style={{ padding: "12px 16px", background: "var(--color-surface-0)", display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{
+                background: "var(--color-primary-tonal)", color: "var(--color-primary)",
+                border: "1px solid rgba(99,102,241,0.3)",
+                borderRadius: "var(--radius-sm)", padding: "4px 12px",
+                fontWeight: 900, fontSize: "var(--font-size-lg)", fontFamily: "monospace",
+                minWidth: 36, textAlign: "center",
+              }}>{searchOperator}</span>
+              <input
+                autoFocus
+                placeholder="Search by description or item code…"
+                value={searchQuery}
+                style={{
+                  flex: 1, background: "transparent",
+                  border: "1px solid var(--color-border-strong)",
+                  color: "var(--color-text-primary)",
+                  padding: "10px 14px", fontSize: "var(--font-size-lg)",
+                  borderRadius: "var(--radius-md)", outline: "none",
+                  fontFamily: "var(--font-family)",
+                }}
+                onChange={e => {
+                  const v = e.target.value;
+                  setSearchQuery(v);
+                  const val = v.toLowerCase().trim();
+                  const num = parseFloat(v);
+                  let matches = items;
+                  if (val) {
+                    if (searchOperator === ":") matches = items.filter(i => i.description.toLowerCase().includes(val) || i.item_code.toLowerCase().includes(val));
+                    else if (searchOperator === "=") matches = items.filter(i => i.item_code.toLowerCase() === val);
+                    else if (searchOperator === ">" && !isNaN(num)) matches = items.filter(i => i.mrp > num);
+                    else if (searchOperator === "<" && !isNaN(num)) matches = items.filter(i => i.mrp < num);
+                  }
+                  setSearchResults(matches.slice(0, 10));
+                  setActiveIndex(0);
+                }}
+                onKeyDown={e => {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setActiveIndex(p => (p + 1) % Math.max(searchResults.length, 1)); }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setActiveIndex(p => (p - 1 + Math.max(searchResults.length, 1)) % Math.max(searchResults.length, 1)); }
+                  if (e.key === "Enter" && searchResults[activeIndex]) selectItem(searchResults[activeIndex]);
+                }}
+              />
+            </div>
 
-        {isAdding && (
-          <div className="grn-form">
-             <div className="grn-header shp-glass" style={{ flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: 10, flex: '1 1 100%' }}>
-                   <input placeholder="PO Number" value={poNumber} onChange={e => setPoNumber(e.target.value)} style={{ flex: 1 }} />
-                   <button onClick={handleRetrievePO} style={{ background: '#4f46e5', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: 4, cursor: 'pointer', fontWeight: 'bold' }}>Fetch PO</button>
+            {/* Results */}
+            <div style={{ maxHeight: 360, overflowY: "auto" }}>
+              {(searchQuery ? searchResults : items.slice(0, 12)).map((item, idx) => (
+                <div
+                  key={item.id}
+                  onClick={() => selectItem(item)}
+                  style={{
+                    padding: "11px 20px", display: "flex", justifyContent: "space-between", alignItems: "center",
+                    borderBottom: "1px solid var(--color-border)",
+                    cursor: "pointer",
+                    background: idx === activeIndex ? "var(--color-primary-tonal)" : "transparent",
+                    borderLeft: idx === activeIndex ? "3px solid var(--color-primary)" : "3px solid transparent",
+                    transition: "background var(--motion-fast) var(--motion-ease)",
+                  }}
+                  onMouseEnter={() => setActiveIndex(idx)}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--font-size-sm)", color: "var(--color-text-primary)" }}>{item.description}</div>
+                    <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-primary)", fontFamily: "monospace", marginTop: 2 }}>[{item.item_code}]</div>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: "var(--font-size-md)", color: "var(--color-warning)", fontFamily: "monospace" }}>₹{item.mrp}</div>
                 </div>
-                <input placeholder="Invoice No" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} style={{ flex: 1 }} />
-                <input placeholder="Gate Ref" value={gateEntryNo} onChange={e => setGateEntryNo(e.target.value)} style={{ flex: 1 }} />
-                <input type="number" placeholder="Freight" value={freightCharges} onChange={e => setFreightCharges(Number(e.target.value))} style={{ flex: 1 }} />
-             </div>
-             <div className="grn-grid">
-                <table>
+              ))}
+              {searchQuery && searchResults.length === 0 && (
+                <div style={{ padding: "32px", textAlign: "center", color: "var(--color-text-tertiary)", fontSize: "var(--font-size-sm)" }}>
+                  No items match "{searchQuery}"
+                </div>
+              )}
+            </div>
+
+            {/* Footer hint */}
+            <div style={{
+              padding: "10px 20px", borderTop: "1px solid var(--color-border)",
+              background: "var(--color-surface-2)",
+              display: "flex", gap: 16, fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)",
+            }}>
+              <span>↑↓ Navigate</span>
+              <span>⏎ Select</span>
+              <span>Esc Close</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GRN ENTRY FORM ── */}
+      {isAdding && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 32 }}>
+
+          {/* Keyboard Hotkey Hint Bar */}
+          <div style={{
+            display: "flex", gap: 20, padding: "10px 16px",
+            background: "var(--color-primary-tonal)",
+            border: "1px solid rgba(99,102,241,0.25)",
+            borderRadius: "var(--radius-md)",
+            fontSize: "var(--font-size-xs)", color: "var(--color-primary)", fontWeight: 600,
+            alignItems: "center",
+          }}>
+            <Keyboard size={14} />
+            <span><kbd style={{ background: "var(--color-primary)", color: "#fff", padding: "2px 6px", borderRadius: 3, fontFamily: "monospace" }}>F2</kbd> Item Discovery</span>
+            <span><kbd style={{ background: "var(--color-surface-3)", color: "var(--color-text-secondary)", padding: "2px 6px", borderRadius: 3, fontFamily: "monospace" }}>F3</kbd> Cycle Filter</span>
+            <span><kbd style={{ background: "var(--color-success)", color: "#fff", padding: "2px 6px", borderRadius: 3, fontFamily: "monospace" }}>F10</kbd> Post GRN</span>
+            <span><kbd style={{ background: "var(--color-surface-3)", color: "var(--color-text-secondary)", padding: "2px 6px", borderRadius: 3, fontFamily: "monospace" }}>Esc</kbd> Close Modal</span>
+          </div>
+
+          {/* Header Card */}
+          <Card padding="20px" accent="var(--color-primary)">
+            <SectionHeader title="GRN Header" sub="Purchase order consolidation and vendor reference." style={{ marginBottom: 16 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <FormField label="PO Number">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    style={{ ...fieldInput, flex: 1, fontFamily: "monospace" }}
+                    placeholder="PO-XXXXX"
+                    value={poNumber}
+                    onChange={e => setPoNumber(e.target.value)}
+                  />
+                  <Button variant="secondary" size="sm" icon={<FileDown size={13} />} onClick={handleRetrievePO}>Fetch</Button>
+                </div>
+              </FormField>
+              <FormField label="Vendor Code">
+                <input style={{ ...fieldInput, fontFamily: "monospace", textTransform: "uppercase" }} value={vendorCode} onChange={e => setVendorCode(e.target.value)} />
+              </FormField>
+              <FormField label="Supplier Invoice No">
+                <input style={fieldInput} placeholder="INV-12345" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} />
+              </FormField>
+              <FormField label="Gate Reference">
+                <input style={fieldInput} placeholder="GATE-REF" value={gateEntryNo} onChange={e => setGateEntryNo(e.target.value)} />
+              </FormField>
+              <FormField label="Freight Charges (₹)" style={{ gridColumn: "4 / 5" }}>
+                <input
+                  type="number" min={0} style={{ ...fieldInput, textAlign: "right" }}
+                  value={freightCharges} onChange={e => setFreightCharges(Number(e.target.value))}
+                />
+              </FormField>
+            </div>
+          </Card>
+
+          {/* Line Items Card */}
+          <Card padding="20px">
+            <SectionHeader
+              title={`Line Items ${lineItems.length > 0 ? `(${lineItems.length})` : ""}`}
+              sub="Triple-qty control: Billed → Received → Rejected"
+              style={{ marginBottom: 16 }}
+              actions={
+                <Button variant="ghost" size="sm" icon={<Search size={13} />} onClick={() => setIsLookupOpen(true)}>
+                  Add Item [F2]
+                </Button>
+              }
+            />
+
+            {lineItems.length === 0 ? (
+              <div style={{
+                height: 160, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                background: "var(--color-surface-2)", borderRadius: "var(--radius-md)",
+                border: "1px dashed var(--color-border-strong)", gap: 12,
+                color: "var(--color-text-tertiary)",
+              }}>
+                <Package size={28} opacity={0.3} />
+                <span style={{ fontSize: "var(--font-size-sm)" }}>Press F2 to add items, or Fetch a PO above</span>
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--font-size-sm)" }}>
                   <thead>
-                     <tr>
-                        <th>Item Description</th>
-                        <th>Billed</th>
-                        <th>Recv</th>
-                        <th>Rate</th>
-                        <th>Landed</th>
-                        <th>Total</th>
-                     </tr>
+                    <tr style={{ background: "var(--color-surface-2)", borderBottom: "1px solid var(--color-border-strong)" }}>
+                      {["Item Code / Description", "Billed Qty", "Received", "Rejected", "Rate (₹)", "Tax %", "Landed ₹", "Line Total"].map(h => (
+                        <th key={h} style={{ padding: "10px 12px", textAlign: h.includes("₹") || h.includes("Qty") || h.includes("%") ? "right" : "left", fontSize: "var(--font-size-xs)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--color-text-tertiary)", whiteSpace: "nowrap" }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody>
-                     {getLineTotals().map(l => (
-                        <tr key={l.id}>
-                           <td>{l.item_code} - {items.find(i => i.id === l.item_id)?.description}</td>
-                           <td><input type="number" value={l.billed_qty} onChange={e => handleUpdateLine(l.id, 'billed_qty', Number(e.target.value))} /></td>
-                           <td><input type="number" value={l.received_qty} onChange={e => handleUpdateLine(l.id, 'received_qty', Number(e.target.value))} /></td>
-                           <td><input type="number" value={l.rate} onChange={e => handleUpdateLine(l.id, 'rate', Number(e.target.value))} /></td>
-                           <td style={{ fontWeight: "bold" }}>{l.landed_rate?.toFixed(2)}</td>
-                           <td style={{ color: "#10b981", fontWeight: "bold" }}>{l.line_total?.toLocaleString()}</td>
-                        </tr>
-                     ))}
+                    {getLineTotals().map((l, idx) => (
+                      <tr key={l.id} style={{ borderBottom: "1px solid var(--color-border)", background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
+                        <td style={{ padding: "8px 12px" }}>
+                          <div style={{ fontWeight: 700, fontSize: "var(--font-size-xs)", color: "var(--color-primary)", fontFamily: "monospace" }}>{l.item_code}</div>
+                          <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: 2 }}>
+                            {items.find(i => i.id === l.item_id)?.description ?? "—"}
+                          </div>
+                        </td>
+                        {/* Billed Qty */}
+                        <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                          <input type="number" value={l.billed_qty} onChange={e => handleUpdateLine(l.id, "billed_qty", Number(e.target.value))}
+                            style={{ width: 72, background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-primary)", padding: "5px 8px", borderRadius: "var(--radius-sm)", textAlign: "right", fontSize: "var(--font-size-sm)", outline: "none" }} />
+                        </td>
+                        {/* Received Qty */}
+                        <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                          <input type="number" value={l.received_qty} onChange={e => handleUpdateLine(l.id, "received_qty", Number(e.target.value))}
+                            style={{ width: 72, background: "var(--color-surface-2)", border: `1px solid ${l.received_qty > l.billed_qty ? "var(--color-danger)" : "var(--color-border-strong)"}`, color: "var(--color-text-primary)", padding: "5px 8px", borderRadius: "var(--radius-sm)", textAlign: "right", fontSize: "var(--font-size-sm)", outline: "none" }} />
+                        </td>
+                        {/* Rejected Qty */}
+                        <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                          <input type="number" value={l.rejected_qty} onChange={e => handleUpdateLine(l.id, "rejected_qty", Number(e.target.value))}
+                            style={{ width: 72, background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)", color: l.rejected_qty > 0 ? "var(--color-danger)" : "var(--color-text-primary)", padding: "5px 8px", borderRadius: "var(--radius-sm)", textAlign: "right", fontSize: "var(--font-size-sm)", outline: "none" }} />
+                        </td>
+                        {/* Rate */}
+                        <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                          <input type="number" value={l.rate} onChange={e => handleUpdateLine(l.id, "rate", Number(e.target.value))}
+                            style={{ width: 88, background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-primary)", padding: "5px 8px", borderRadius: "var(--radius-sm)", textAlign: "right", fontSize: "var(--font-size-sm)", outline: "none", fontFamily: "monospace" }} />
+                        </td>
+                        {/* Tax % */}
+                        <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                          <input type="number" value={l.tax_pct} onChange={e => handleUpdateLine(l.id, "tax_pct", Number(e.target.value))}
+                            style={{ width: 56, background: "var(--color-surface-2)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-primary)", padding: "5px 8px", borderRadius: "var(--radius-sm)", textAlign: "right", fontSize: "var(--font-size-sm)", outline: "none" }} />
+                        </td>
+                        {/* Landed Rate */}
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, fontFamily: "monospace", color: "var(--color-info)", fontSize: "var(--font-size-sm)" }}>
+                          {l.landed_rate?.toFixed(2)}
+                        </td>
+                        {/* Line Total */}
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 800, fontFamily: "monospace", color: "var(--color-success)", fontSize: "var(--font-size-md)" }}>
+                          ₹{(l.line_total || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-             </div>
-             <div className="grn-footer">
-                <div className="total">Grand Total: ₹{getLineTotals().reduce((a,c) => a + (c.line_total || 0), 0).toLocaleString()}</div>
-                <button className="post-btn" onClick={handleSaveGRN}>Post Entry [F10]</button>
-             </div>
-          </div>
-        )}
+              </div>
+            )}
 
-        {!isAdding && (
-           <div className="grn-list">
-              <table>
-                 <thead><tr><th>GRN #</th><th>Vendor</th><th>Qty</th><th>Status</th></tr></thead>
-                 <tbody>
-                    {grns.map(g => (
-                       <tr key={g.grn_number}>
-                          <td>{g.grn_number}</td>
-                          <td>{g.vendor_name}</td>
-                          <td>{g.total_qty}</td>
-                          <td>{g.status}</td>
-                       </tr>
-                    ))}
-                 </tbody>
-              </table>
-           </div>
-        )}
-      </main>
+            {/* Footer Totals */}
+            {lineItems.length > 0 && (
+              <div style={{
+                marginTop: 16, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 32,
+                padding: "16px 20px", background: "var(--color-surface-2)", borderRadius: "var(--radius-md)",
+                border: "1px solid var(--color-border)",
+              }}>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Freight</div>
+                  <div style={{ fontWeight: 700, fontFamily: "monospace" }}>₹{freightCharges.toLocaleString("en-IN")}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Grand Total</div>
+                  <div style={{ fontSize: "var(--font-size-3xl)", fontWeight: 900, fontFamily: "monospace", color: "var(--color-success)" }}>
+                    ₹{grandTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
 
-      <style jsx>{`
-        .erp-shell { background: #000; color: #fff; position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden; font-family: monospace; }
-        .erp-topbar { padding: 10px 20px; border-bottom: 1px solid #222; }
-        .shp-modal-deep { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 9999; display: flex; align-items: flex-start; justify-content: center; padding-top: 100px; }
-        .shp-modal-content { background: #111; border: 1px solid #333; width: 600px; border-radius: 8px; overflow: hidden; }
-        .shp-modal-header { padding: 15px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; background: #1a1a1a; }
-        .shp-modal-search { padding: 15px; display: flex; gap: 10px; align-items: center; background: #000; }
-        .shp-operator-badge { background: #fbbf24; color: #000; padding: 2px 10px; border-radius: 4px; font-weight: 900; font-size: 18px; }
-        .shp-modal-search input { flex: 1; background: transparent; border: 2px solid #333; color: #fff; padding: 10px; font-size: 18px; outline: none; }
-        .shp-modal-results { max-height: 400px; overflow-y: auto; }
-        .shp-modal-row { padding: 10px 15px; display: flex; justify-content: space-between; border-bottom: 1px solid #222; cursor: pointer; }
-        .shp-modal-row.active { background: #3b82f633; border-left: 4px solid #3b82f6; }
-        .shp-modal-row .sku { font-size: 11px; color: #6366f1; }
-        .shp-modal-row .mrp { color: #fbbf24; font-weight: bold; }
-        .shp-glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 15px; border-radius: 8px; display: flex; gap: 10px; margin-bottom: 15px; }
-        .grn-grid table { width: 100%; border-collapse: collapse; }
-        .grn-grid th { text-align: left; background: #1a1a1a; padding: 10px; font-size: 11px; color: #666; }
-        .grn-grid td { padding: 8px; border-bottom: 1px solid #222; }
-        .grn-grid input { background: #000; border: 1px solid #333; color: #fff; padding: 5px; width: 80px; text-align: right; }
-        .grn-footer { margin-top: 20px; display: flex; justify-content: space-between; align-items: center; padding: 20px; background: #111; }
-        .post-btn { background: #4f46e5; color: #fff; border: none; padding: 15px 30px; font-weight: 900; border-radius: 4px; cursor: pointer; }
-      `}</style>
-    </div>
+      {/* ── GRN LIST ── */}
+      {!isAdding && (
+        <>
+          <SectionHeader
+            title="Inward Register"
+            sub="All posted GRN transactions in chronological order."
+            style={{ marginBottom: 16 }}
+            actions={
+              <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={() => setIsAdding(true)}>New Shipment</Button>
+            }
+          />
+          <DataTable<Record<string, unknown>>
+            columns={grnColumns}
+            rows={grns as unknown as Record<string, unknown>[]}
+            emptyMessage="No GRN transactions found. Click 'New Shipment' to begin receiving."
+            stickyHeader
+          />
+        </>
+      )}
+    </PageShell>
   );
 }
