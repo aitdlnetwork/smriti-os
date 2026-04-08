@@ -17,7 +17,7 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface NavItem {
   id: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
   label: string;
   href: string;
   shortcut?: string;
